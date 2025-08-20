@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -347,7 +348,69 @@ func handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 	)
 }
 
+var (
+	// Certificate and key for self-signed SSL
+	certPEM = []byte(`-----BEGIN CERTIFICATE-----
+MIIDEzCCAfsCFHnBcwS07+cJKfaXI7bq43B8pDcbMA0GCSqGSIb3DQEBCwUAMEUx
+CzAJBgNVBAYTAkFVMRMwEQYDVQQIDApTb21lLVN0YXRlMSEwHwYDVQQKDBhJbnRl
+cm5ldCBXaWRnaXRzIFB0eSBMdGQwIBcNMjUwODIwMDg1MzQ3WhgPMjEyNTA3Mjcw
+ODUzNDdaMEUxCzAJBgNVBAYTAkFVMRMwEQYDVQQIDApTb21lLVN0YXRlMSEwHwYD
+VQQKDBhJbnRlcm5ldCBXaWRnaXRzIFB0eSBMdGQwggEiMA0GCSqGSIb3DQEBAQUA
+A4IBDwAwggEKAoIBAQDIsRDEQwI1KEyUHICMvN+HrTZCSgRoTZ9vhJ63osw5uj3l
+kZTf8co+XPxUO2vTtrDe+MS5MGlpjdcSupbh9cvK1ILvc2u867zWsckzNyInbErM
+9t1VVLB9w+w7Pg+mwgTqfrU0m7fuJFKX8FoYdtibZh+vZWW/IzTTmn/Dsagzdhjm
+yv256oe3kw2wTWXALnpq5wPJQ4oImiAINno5s7yZPtoEXbKT3rliXvBckRP/WQ0s
+xb9CHMdTEXeWMWQ5yY2A5h5sph8r7FfJodF/xmi49odRtaUWUrDAQwzG+nYzhxpR
+XYDKpbqS6rTK9mbUWdqaZ1fLOa76EIZi0yIsMJHDAgMBAAEwDQYJKoZIhvcNAQEL
+BQADggEBADsl6Vat8+eRVyWG/BCdCOMRy9Ak7Zj2bAavjSaEh+uWLZFVnBcif1ng
+5CpdUfzbjotyXcMQFCRV5yQP6V2qadn5io2TbdVTnw4aMSvoqePVAAXR7QpVJS9K
+sRhJPnMn6zigoGeqDf3yCQ1+fbIw6EYKLah7mF9CffJpMbMXOlVmVZabzzrP9E54
+cQE3BmEnvMy7CQwBy6/u/5ngzDSFyUmdeZb+dUNGlWFCS2Wu1ZwfyX8jQOomS2Lg
+ECwWNoBMVpHGVzcliVHKONHcIlfdkCq8rZ6Wz6BSq2le8Sv7UBYHkoUfgT1HcGZ2
+9zE0xCJgWsMrLCO/ILnFbFGDXsVnXas=
+-----END CERTIFICATE-----`)
+
+	keyPEM = []byte(`-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDIsRDEQwI1KEyU
+HICMvN+HrTZCSgRoTZ9vhJ63osw5uj3lkZTf8co+XPxUO2vTtrDe+MS5MGlpjdcS
+upbh9cvK1ILvc2u867zWsckzNyInbErM9t1VVLB9w+w7Pg+mwgTqfrU0m7fuJFKX
+8FoYdtibZh+vZWW/IzTTmn/Dsagzdhjmyv256oe3kw2wTWXALnpq5wPJQ4oImiAI
+Nno5s7yZPtoEXbKT3rliXvBckRP/WQ0sxb9CHMdTEXeWMWQ5yY2A5h5sph8r7FfJ
+odF/xmi49odRtaUWUrDAQwzG+nYzhxpRXYDKpbqS6rTK9mbUWdqaZ1fLOa76EIZi
+0yIsMJHDAgMBAAECggEAWAvWn0QGo+uaLSCUBSqXpp6HP23ZoSjs2bAFMetqTak3
+no/QEK+zWsjQquOm2qs7zZa2N8jVdkmUIdNafqenUMUK7KJmkeuaXVaCPsXhZgpM
+hr+HOvh8tbBO427GzxIvtfEA7qOifgfRdHcuD62UOhkDrZ9+k+yOMIeHpgM7F9fh
+DZAvUeQ1M4kEJn6IH6Pxj0dKAFG/L1fPjerQ9ByxeW+Y/Z5RA+U9Xe3VGoHr01kj
+PFjuIKJPXk5QVj/cvDoC7WgIxtTp9Wf+VozsV/j/UAOkQoHc4g54NrIP87xOjt0N
+b+6HhEL16RXe/+5H264uk8EzjtIgyInja3D8Is9JAQKBgQDlwQe3k9LWv5G2utNz
+aYzjr6kp5YDxh74FPP6c6+fwH2kbP8h7h3LNw4k50wqz7r+V012RjOV84WuRLWIN
+MhKhPecDWI/tk7Fm8/0ih+jHIlj82Xs21+KtZ+DJuMhQVj7NpoGqyBp9UoKhghqt
+ez6TyTvX0l/gskmBDu9D3X0yCQKBgQDfniFTPJHbx7ovExWGXslTCM2nGzb9Wuc5
+8QUorLH2u1tZye5oLWqghBhbbmUgMiz+7Ag1vi/iA/mJMz5KGeOpqsCCzJeuuYxk
+876V2gtLv1UiImm7kIkjEVjxX9vMA+2V6yTZ+VVMh6yGxImZEEGBxzMgqpb+6BeL
+55Tg1oFoawKBgQDf3UrYq/em+XhQlQ+NiA4YmEN7KD2QmhQj5H+uhQo05VYzj92X
+x62sIlemeSUXl40jvpSQSrodCUQXbCH6+4w9giSDFRsAgYU87IX8zHKa/bO5g2tU
+T9x13B6iTyMXbEG7ff8gWeO9stTH7A50dP7PXyepLjnvpaiLUPL/rGPdiQKBgDMr
+x2p5wNLvWH6vOky+YgmbSRxFUQcXBzSuH8UYB71zUEsyt1ilk/HZaI17rK56bOuE
+7bgGpoRs7mxkCowAcqV/yn/j+43jLepoEKPP+qfBx+SAxXtDbu5UaOsLSYvdFkAp
+SAyNTuStY2CPlwEsxCDDicKe5uC8Ea9VNi9hRsmzAoGAPNA9Mae3FxqIviXkZNcA
+ma+DNYzg+IhEqfaLgXj4SL/lAbI95hjl6OXxQTqy451YsCYuOJORtR6oxfiOs9Aj
+LvBf38k2VGLoQRG5ImXhUh4VfXCe2XZ63/7TG2Y3HUkj5qpReCbk7OzhTNe6JWD5
+lpQWMKMzwf3L+rubBkxVusg=
+-----END PRIVATE KEY-----`)
+)
+
 func main() {
+	// Define command-line flags
+	port := flag.Int("port", 8080, "Port to serve on")
+	useSSL := flag.Bool("ssl", false, "Enable SSL/HTTPS mode")
+	flag.Parse()
+
+	// Override port if SSL is enabled
+	if *useSSL && *port == 8080 {
+		*port = 443
+	}
+
 	configPath = filepath.Join(".", "cfg.yml")
 	tokensPath = filepath.Join(".", "tokens.yml")
 
@@ -365,9 +428,42 @@ func main() {
 	http.HandleFunc("/refresh-token", handleRefreshToken)
 	http.HandleFunc("/request-token", handleManualTokenRequest)
 
-	port := "8080"
-	fmt.Printf("Server starting on http://localhost:%s\n", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	// Prepare server address
+	addr := fmt.Sprintf(":%d", *port)
+
+	// Print server start message
+	if *useSSL {
+		fmt.Printf("Server starting on https://localhost:%d\n", *port)
+
+		// Create temporary files for cert and key
+		certFile, err := os.CreateTemp("", "oauth-cert-*.pem")
+		if err != nil {
+			log.Fatalf("Failed to create temporary cert file: %v", err)
+		}
+		defer os.Remove(certFile.Name())
+
+		keyFile, err := os.CreateTemp("", "oauth-key-*.pem")
+		if err != nil {
+			log.Fatalf("Failed to create temporary key file: %v", err)
+		}
+		defer os.Remove(keyFile.Name())
+
+		// Write cert and key to temp files
+		if _, err := certFile.Write(certPEM); err != nil {
+			log.Fatalf("Failed to write cert file: %v", err)
+		}
+		if _, err := keyFile.Write(keyPEM); err != nil {
+			log.Fatalf("Failed to write key file: %v", err)
+		}
+
+		certFile.Close()
+		keyFile.Close()
+
+		log.Fatal(http.ListenAndServeTLS(addr, certFile.Name(), keyFile.Name(), nil))
+	} else {
+		fmt.Printf("Server starting on http://localhost:%d\n", *port)
+		log.Fatal(http.ListenAndServe(addr, nil))
+	}
 }
 
 func handleManualTokenRequest(w http.ResponseWriter, r *http.Request) {
