@@ -36,7 +36,132 @@ var (
 )
 
 func handleRefreshToken(w http.ResponseWriter, r *http.Request) {
-	// Read configuration
+	if r.Method == http.MethodGet {
+		// Render the intermediary page with payload details
+		config := readConfig()
+		refreshToken := r.URL.Query().Get("refresh_token")
+		if refreshToken == "" {
+			http.Error(w, "No refresh token provided", http.StatusBadRequest)
+			return
+		}
+
+		// Generate JSON payload
+		payloadJSON, _ := json.MarshalIndent(map[string]string{
+			"client_id":     config.ClientID,
+			"client_secret": config.ClientSecret,
+			"grant_type":    "refresh_token",
+			"refresh_token": refreshToken,
+		}, "", "  ")
+
+		// Render intermediary page
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `<!DOCTYPE html>
+		<html lang="en" data-bs-theme="dark">
+		<head>
+			<meta charset="utf-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1">
+			<title>OAuth2 Refresh Token Request</title>
+			<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+			<link href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/github-dark.min.css" rel="stylesheet">
+			<style>
+				.card {
+					background-color: #1e1e1e;
+					color: #e0e0e0;
+				}
+				.form-control, .form-control:focus {
+					background-color: #2c2c2c;
+					color: #e0e0e0;
+					border-color: #444;
+				}
+				.accordion-button {
+					background-color: #2c2c2c;
+					color: #e0e0e0;
+				}
+				.accordion-button:not(.collapsed) {
+					background-color: #3c3c3c;
+					color: #e0e0e0;
+				}
+				pre {
+					background-color: #1e1e1e;
+					color: #e0e0e0;
+					padding: 15px;
+					border-radius: 5px;
+				}
+			</style>
+		</head>
+		<body>
+			<div class="container mt-5">
+				<h1 class="mb-4 text-center">Token Refresh Request</h1>
+				<p class="lead text-center">These are the fields that will be sent to the authorization server to request a new access token.</p>
+
+				<div class="card bg-secondary text-white mb-3">
+					<div class="card-header fs-4">Payload JSON</div>
+					<div class="card-body">
+						<pre class="bg-dark text-white p-3"><code class="language-json">%s</code></pre>
+					</div>
+				</div>
+
+				<div class="card bg-secondary text-white mb-3">
+					<div class="card-header fs-4">Request Fields</div>
+					<div class="card-body">
+						<table class="table table-dark table-bordered">
+							<thead>
+								<tr>
+									<th>Parameter</th>
+									<th>Value</th>
+									<th>Description</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<td><code>client_id</code></td>
+									<td><code>%s</code></td>
+									<td>The ID of the client application registered with the authorization server</td>
+								</tr>
+								<tr>
+									<td><code>client_secret</code></td>
+									<td><code>%s</code></td>
+									<td>The secret of the client application registered with the authorization server</td>
+								</tr>
+								<tr>
+									<td><code>grant_type</code></td>
+									<td><code>refresh_token</code></td>
+									<td>Indicates we are requesting a new access token using a refresh token</td>
+								</tr>
+								<tr>
+									<td><code>refresh_token</code></td>
+									<td><code>%s</code></td>
+									<td>The token used to obtain a new access token</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+				</div>
+
+				<form action="/refresh-token" method="post" class="text-center">
+					<input type="hidden" name="refresh_token" value="%s">
+					<button type="submit" class="btn btn-primary btn-lg">Send Token Refresh Request</button>
+					<a href="/" class="btn btn-secondary btn-lg ms-2">Back to Home</a>
+				</form>
+			</div>
+			<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+			<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/highlight.min.js"></script>
+			<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/languages/json.min.js"></script>
+			<script>
+				hljs.highlightAll();
+			</script>
+		</body>
+		</html>`,
+			string(payloadJSON),
+			config.ClientID,
+			config.ClientSecret,
+			refreshToken,
+			refreshToken,
+		)
+		return
+	}
+
+	// Existing POST method logic for actual token refresh
 	config := readConfig()
 
 	// Get the refresh token from the request
@@ -77,29 +202,129 @@ func handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 	}
 	saveTokenResponse(tokenResponse)
 
+	// Parse the response body
+	var trp TokenResponsePayload
+	if err := json.Unmarshal(body, &trp); err != nil {
+		http.Error(w, "Failed to unmarshal token response", http.StatusInternalServerError)
+		return
+	}
+
+	// Prepare a response with fields and explanations
+	var alertBanner string
+	if resp.StatusCode != http.StatusOK {
+		alertBanner = `<div class="alert alert-danger" role="alert"><p>Failed to refresh token as it returned status code: ` + strconv.Itoa(resp.StatusCode) + ` - more details below</p></div>`
+	}
+
 	// Display response details
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `<!DOCTYPE html>
-		<html lang="en" data-bs-theme="dark">;
+		<html lang="en" data-bs-theme="dark">
 		<head>
 			<meta charset="utf-8">
 			<meta name="viewport" content="width=device-width, initial-scale=1">
-			<title>OAuth2 Refresh Token Response</title>
+			<title>OAuth2 Token Refresh Response</title>
 			<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 			<link href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/github-dark.min.css" rel="stylesheet">
+			<style>
+				.card {
+					background-color: #1e1e1e;
+					color: #e0e0e0;
+				}
+				.form-control, .form-control:focus {
+					background-color: #2c2c2c;
+					color: #e0e0e0;
+					border-color: #444;
+				}
+				.accordion-button {
+					background-color: #2c2c2c;
+					color: #e0e0e0;
+				}
+				.accordion-button:not(.collapsed) {
+					background-color: #3c3c3c;
+					color: #e0e0e0;
+				}
+				pre {
+					background-color: #1e1e1e;
+					color: #e0e0e0;
+					padding: 15px;
+					border-radius: 5px;
+				}
+			</style>
 		</head>
-		<body class="bg-dark text-white">
+		<body>
 			<div class="container mt-5">
-				<h1 class="mb-4 text-center">OAuth2 Refresh Token Response</h1>
-				<div class="card bg-secondary text-white">
-					<div class="card-header">
-						Status Code: %d
+				<h1 class="mb-4 text-center">OAuth2 Token Refresh Response</h1>
+
+				%s
+
+				<p class="lead text-center">The remote authorization server has responded with the following details. This marks the end of the token refresh flow.</p>
+
+				<div class="card bg-secondary text-white mb-3">
+					<div class="card-header fs-4">
+						Response JSON (Status Code: %d)
 					</div>
 					<div class="card-body">
-						<pre class="bg-dark text-white"><code class="language-json">%s</code></pre>
+						<pre class="bg-dark text-white p-3"><code class="language-json">%s</code></pre>
 					</div>
 				</div>
-				<a href="/" class="btn btn-primary mt-3">Back to Home</a>
+
+				<div class="card bg-secondary text-white mt-3">
+					<div class="card-header fs-4">
+						Response Fields
+					</div>
+					<div class="card-body">
+						<table class="table table-dark table-bordered">
+							<thead>
+								<tr>
+									<th scope="col">Field</th>
+									<th scope="col">Value</th>
+									<th scope="col">Explanation</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<td><code>access_token</code></td>
+									<td><code>%s</code></td>
+									<td>Access token used for subsequent requests in the Authorization header</td>
+								</tr>
+								<tr>
+									<td><code>token_type</code></td>
+									<td><code>%s</code></td>
+									<td>How the token should be used by the client to access the server</td>
+								</tr>
+								<tr>
+									<td><code>expires_in</code></td>
+									<td><code>%d</code></td>
+									<td>How long until the token expires (in seconds)</td>
+								</tr>
+								<tr>
+									<td><code>refresh_token</code></td>
+									<td><code>%s</code></td>
+									<td>The token used to refresh the access token when it expires</td>
+								</tr>
+								<tr>
+									<td><code>scope</code></td>
+									<td><code>%s</code></td>
+									<td>The OAuth scopes the token was issued for</td>
+								</tr>
+								<tr>
+									<td><code>created_at</code></td>
+									<td><code>%s</code></td>
+									<td>When the token was created (unix epoch)</td>
+								</tr>
+								<tr>
+									<td><code>id_token</code></td>
+									<td><code>%s</code></td>
+									<td>The ID token used to verify the identity of the user</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+				</div>
+
+				<div class="mt-3 text-center">
+					<a href="/" class="btn btn-primary btn-lg">Back to Home</a>
+				</div>
 			</div>
 			<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 			<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/highlight.min.js"></script>
@@ -109,8 +334,16 @@ func handleRefreshToken(w http.ResponseWriter, r *http.Request) {
 			</script>
 		</body>
 		</html>`,
+		alertBanner,
 		resp.StatusCode,
-		string(body),
+		formatJSONResponse(body),
+		trp.AccessToken,
+		trp.TokenType,
+		trp.ExpiresIn,
+		trp.RefreshToken,
+		trp.Scope,
+		trp.CreatedAt,
+		trp.IDToken[0:30]+"...",
 	)
 }
 
@@ -897,7 +1130,7 @@ func buildTokenResponsesHTML(tokenResponses []TokenResponse) string {
 		if err := json.Unmarshal([]byte(response.ResponseBody), &parsedResponse); err == nil {
 			if rt, ok := parsedResponse["refresh_token"].(string); ok && rt != "" {
 				refreshTokenButton = fmt.Sprintf(`
-					<form action="/refresh-token" method="post" class="mt-3">
+					<form action="/refresh-token" method="get" class="mt-3">
 						<input type="hidden" name="refresh_token" value="%s">
 						<button type="submit" class="btn btn-primary">Refresh Token</button>
 					</form>`, rt)
