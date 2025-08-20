@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -182,6 +183,17 @@ func handleManualTokenRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	saveTokenResponse(tokenResponse)
 
+	trp := TokenResponsePayload{}
+	if err := json.Unmarshal(body, &trp); err != nil {
+		http.Error(w, "Failed to unmarshal token response", http.StatusInternalServerError)
+		return
+	}
+
+	var alertBanner string
+	if resp.StatusCode != http.StatusOK {
+		alertBanner = `<div class="alert alert-danger" role="alert"><p>Failed to request token as it returned status code: ` + strconv.Itoa(resp.StatusCode) + ` - more details below</p></div>`
+	}
+
 	// Display response details
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `<!DOCTYPE html>
@@ -189,23 +201,83 @@ func handleManualTokenRequest(w http.ResponseWriter, r *http.Request) {
 		<head>
 			<meta charset="utf-8">
 			<meta name="viewport" content="width=device-width, initial-scale=1">
-			<title>OAuth2 Manual Token Response</title>
+			<title>OAuth2 Token Response</title>
 			<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 			<link href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/github-dark.min.css" rel="stylesheet">
 		</head>
 		<body class="bg-dark text-white">
 			<div class="container mt-5">
-				<h1 class="mb-4">OAuth2 Manual Token Response</h1>
+				<h1 class="mb-4">OAuth2 Token Response</h1>
+
+				%s
+
+				<p class="lead">The remote authorization server has responded with the following details. This marks the end of the flow.</p>
+
 				<div class="card bg-secondary text-white">
-					<div class="card-header">
-						Status Code: %d
+					<div class="card-header fs-4">
+						Response JSON (Status Code: %d)
 					</div>
 					<div class="card-body">
-						<pre class="bg-dark text-white"><code class="language-json">%s</code></pre>
+						<pre class="bg-dark text-white p-3"><code class="language-json">%s</code></pre>
 					</div>
 				</div>
+
+				<div class="card bg-secondary text-white mt-3">
+					<div class="card-header fs-4">
+						Response Fields
+					</div>
+					<div class="card-body">
+						<table class="table table-dark">
+							<thead>
+								<tr>
+									<th scope="col">Field</th>
+									<th scope="col">Value</th>
+									<th scope="col">Explanation</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<td><code>access_token</code></td>
+									<td><code>%s</code></td>
+									<td>Access token used for subsequent requests in the Authorization header</td>
+								</tr>
+								<tr>
+									<td><code>token_type</code></td>
+									<td><code>%s</code></td>
+									<td>How the token should be used by the client to access the server</td>
+								</tr>
+								<tr>
+									<td><code>expires_in</code></td>
+									<td><code>%d</code></td>
+									<td>How long until the token expires</td>
+								</tr>
+								<tr>
+									<td><code>refresh_token</code></td>
+									<td><code>%s</code></td>
+									<td>The token used to refresh the access token when it expires</td>
+								</tr>
+								<tr>
+									<td><code>scope</code></td>
+									<td><code>%s</code></td>
+									<td>The OAuth scopes the token was issued for</td>
+								</tr>
+								<tr>
+									<td><code>created_at</code></td>
+									<td><code>%d</code></td>
+									<td>Created at (Unix timestamp)</td>
+								</tr>
+								<tr>
+									<td><code>id_token</code></td>
+									<td><code>%s</code></td>
+									<td>JWT token that can be decoded to get info about the user</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+				</div>
+
 				<div class="mt-3">
-					<a href="/" class="btn btn-primary">Back to Home</a>
+					<a href="/" class="btn btn-primary btn-lg">Done</a>
 				</div>
 			</div>
 			<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -216,9 +288,27 @@ func handleManualTokenRequest(w http.ResponseWriter, r *http.Request) {
 			</script>
 		</body>
 		</html>`,
+		alertBanner,
 		resp.StatusCode,
-		string(body),
+		tokenResponse.ResponseBody,
+		trp.AccessToken,
+		trp.TokenType,
+		trp.ExpiresIn,
+		trp.RefreshToken,
+		trp.Scope,
+		trp.CreatedAt,
+		trp.IDToken[:30]+"...",
 	)
+}
+
+type TokenResponsePayload struct {
+	AccessToken  string `json:"access_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token"`
+	Scope        string `json:"scope"`
+	CreatedAt    int    `json:"created_at"`
+	IDToken      string `json:"id_token"`
 }
 
 type TokenResponse struct {
@@ -477,18 +567,43 @@ func startPKCEFlow(w http.ResponseWriter, r *http.Request) {
 		<body class="bg-dark text-white">
 			<div class="container mt-5">
 				<h1 class="mb-4">Starting PKCE Flow</h1>
+
+				<p class="lead">These are the fields that we use to start the PKCE flow.  A requirement is for the application to generate a code verifier and challenge.</p>
 				
-				<div class="card bg-secondary text-white position-relative mb-3">
-					<div class="card-header">Authorization URL</div>
+				<div class="card bg-secondary text-white mb-3">
+					<div class="card-header fs-4">Challenge Codes</div>
 					<div class="card-body">
-						<pre class="card-text" id="authUrl">%s</pre>
+						<p>These codes are required to be generated by the application and used in the PKCE flow.  We have generated the below:</p>
+						<table class="table table-dark table-bordered">
+							<tbody>
+								<tr>
+									<td>Code Verifier</td>
+									<td><code>%s</code></td>
+									<td>Used to generate the code challenge</td>
+								</tr>
+								<tr>
+									<td>Code Challenge</td>
+									<td><code>%s</code></td>
+									<td>Authorization server uses this to verify the authorization request</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+				</div>
+
+				<div class="card bg-secondary text-white position-relative mb-3">
+					<div class="card-header fs-4">Authorization URL</div>
+					<div class="card-body">
+						<p>This is the authorization URL that the user will be redirected to, but you can use the button below:</p>
+						<pre class="p-2 bg-dark" id="authUrl">%s</pre>
 						<button class="btn btn-sm btn-outline-light copy-btn" onclick="copyToClipboard()">Copy</button>
 					</div>
 				</div>
 
 				<div class="card bg-secondary text-white mb-3">
-					<div class="card-header">Query Parameters</div>
+					<div class="card-header fs-4">Query Parameters</div>
 					<div class="card-body">
+						<p>These are query parameters from the URL laid out and explained:</p>
 						<table class="table table-dark table-bordered">
 							<thead>
 								<tr>
@@ -533,7 +648,7 @@ func startPKCEFlow(w http.ResponseWriter, r *http.Request) {
 					</div>
 				</div>
 
-				<a href="%s" class="btn btn-primary mb-3">Start Authorization</a>
+				<a href="%s" class="btn btn-primary mb-3 btn-lg">Start Authorization</a>
 			</div>
 			<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 			<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/highlight.min.js"></script>
@@ -552,12 +667,14 @@ func startPKCEFlow(w http.ResponseWriter, r *http.Request) {
 			</script>
 		</body>
 		</html>`,
-		authorizationURL,
+		codeVerifier,
+		codeChallenge,
 		authorizationURL,
 		config.ClientID,
 		config.RedirectURI,
 		config.Scopes,
-		codeChallenge)
+		codeChallenge,
+		authorizationURL)
 
 	// Uncomment the following line to manually trigger redirect if automatic redirect fails
 	// http.Redirect(w, r, authorizationURL, http.StatusTemporaryRedirect)
@@ -604,31 +721,78 @@ func handleCallback(w http.ResponseWriter, r *http.Request) {
 		</head>
 		<body class="bg-dark text-white">
 			<div class="container mt-5">
-				<h1 class="mb-4">OAuth2 Callback</h1>
-				<p class="lead">The user clicked authorize and the application has redirected back to this page with a code to use.</p>
+				<h1 class="mb-4">OAuth2 Callback Received</h1>
+				<p class="lead">The user clicked authorize and the application has redirected back to this page with a code to use to request an access token.</p>
 				<div class="card bg-secondary text-white mb-3">
-					<div class="card-header">Authorization Code</div>
+					<div class="card-header fs-4">Authorization Code</div>
 					<div class="card-body">
 						<p>This is the code given by the application that we will use in the next request</p>
-						<pre class="bg-dark text-white"><code class="language-text">%s</code></pre>
+						<pre class="bg-dark text-white p-3"><code class="language-text">%s</code></pre>
 					</div>
 				</div>
 
 				<div class="card bg-secondary text-white mb-3">
-					<div class="card-header">Token Request Payload</div>
+					<div class="card-header fs-4">Token Request Payload</div>
 					<div class="card-body">
 						<p>This is full payload that will be sent in the request body for the next step</p>
-						<pre class="bg-dark text-white"><code class="language-json">%s</code></pre>
+						<pre class="bg-dark text-white p-3"><code class="language-json">%s</code></pre>
+					</div>
+				</div>
+
+				<div class="card bg-secondary text-white mb-3">
+					<div class="card-header fs-4">Request Fields</div>
+					<div class="card-body">
+						<table class="table table-dark table-bordered">
+							<thead>
+								<tr>
+									<th>Parameter</th>
+									<th>Value</th>
+									<th>Description</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<td><code>client_id</code></td>
+									<td><code>%s</code></td>
+									<td>The ID of the client application registered with the authorization server</td>
+								</tr>
+								<tr>
+									<td><code>client_secret</code></td>
+									<td><code>%s</code></td>
+									<td>The secret of the client application registered with the authorization server</td>
+								</tr>
+								<tr>
+									<td><code>code</code></td>
+									<td><code>%s</code></td>
+									<td>The authorization code received from the authorization server</td>
+								</tr>
+								<tr>
+									<td><code>code_verifier</code></td>
+									<td><code>%s</code></td>
+									<td>The code verifier used to generate the authorization code</td>
+								</tr>
+								<tr>
+									<td><code>grant_type</code></td>
+									<td><code>authorization_code</code></td>
+									<td>The type of grant being requested</td>
+								</tr>
+								<tr>
+									<td><code>redirect_uri</code></td>
+									<td><code>%s</code></td>
+									<td>The redirect URI registered with the authorization server</td>
+								</tr>
+							</tbody>
+						</table>
 					</div>
 				</div>
 
 				<form action="/request-token" method="post" class="mb-3">
 					<input type="hidden" name="code" value="%s">
 					<input type="hidden" name="code_verifier" value="%s">
-					<button type="submit" class="btn btn-primary">Manually Request Token</button>
+					<button type="submit" class="btn btn-primary btn-lg">Request Access Token</button>
+					<a href="/" class="btn btn-secondary btn-lg">Back to Home</a>
 				</form>
 
-				<a href="/" class="btn btn-secondary">Back to Home</a>
 			</div>
 			<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 			<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/highlight.min.js"></script>
@@ -640,6 +804,13 @@ func handleCallback(w http.ResponseWriter, r *http.Request) {
 		</html>`,
 		code,
 		string(payloadJSON),
+
+		config.ClientID,
+		config.ClientSecret,
+		code,
+		codeVerifierCookie.Value,
+		config.RedirectURI,
+
 		code,
 		codeVerifierCookie.Value,
 	)
@@ -715,11 +886,16 @@ func buildTokenResponsesHTML(tokenResponses []TokenResponse) string {
 		}
 		_ = refreshTokenButton
 
+		badgeColor := "danger"
+		if response.StatusCode == 200 {
+			badgeColor = "success"
+		}
+
 		htmlBuilder.WriteString(fmt.Sprintf(`
 		<div class="accordion-item border border-secondary">
 			<h2 class="accordion-header border border-secondary">
 				<button class="accordion-button %s" type="button" data-bs-toggle="collapse" data-bs-target="#response-%d">
-					<span class="badge bg-secondary me-2">%d</span> Response from %s
+					<span class="badge bg-%s me-2">%d</span> Response from %s
 				</button>
 			</h2>
 			<div id="response-%d" class="accordion-collapse collapse %s border border-secondary">
@@ -731,6 +907,7 @@ func buildTokenResponsesHTML(tokenResponses []TokenResponse) string {
 		</div>`,
 			map[bool]string{true: "collapsed", false: ""}[i != 0],
 			i,
+			badgeColor,
 			response.StatusCode,
 			response.Timestamp.Format("Jan 02 15:04:05"),
 			i,
