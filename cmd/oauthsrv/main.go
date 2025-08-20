@@ -34,6 +34,85 @@ var (
 	tokensPath string
 )
 
+func handleRefreshToken(w http.ResponseWriter, r *http.Request) {
+	// Read configuration
+	config := readConfig()
+
+	// Get the refresh token from the request
+	refreshToken := r.FormValue("refresh_token")
+	if refreshToken == "" {
+		http.Error(w, "No refresh token provided", http.StatusBadRequest)
+		return
+	}
+
+	// Prepare refresh token request
+	params := url.Values{
+		"client_id":     {config.ClientID},
+		"client_secret": {config.ClientSecret},
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {refreshToken},
+	}
+
+	// Send refresh token request
+	resp, err := http.PostForm(config.TokenURL, params)
+	if err != nil {
+		http.Error(w, "Failed to request token", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, "Failed to read token response", http.StatusInternalServerError)
+		return
+	}
+
+	// Save token response
+	tokenResponse := TokenResponse{
+		Timestamp:    time.Now(),
+		StatusCode:   resp.StatusCode,
+		ResponseBody: formatJSONResponse(body),
+	}
+	saveTokenResponse(tokenResponse)
+
+	// Display response details
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprintf(w, `<!DOCTYPE html>
+		<html lang="en" data-bs-theme="dark">;
+		<head>
+			<meta charset="utf-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1">
+			<title>OAuth2 Refresh Token Response</title>
+			<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+			<link href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/github-dark.min.css" rel="stylesheet">
+		</head>
+		<body class="bg-dark text-white">
+			<div class="container mt-5">
+				<h1 class="mb-4 text-center">OAuth2 Refresh Token Response</h1>
+				<div class="card bg-secondary text-white">
+					<div class="card-header">
+						Status Code: %d
+					</div>
+					<div class="card-body">
+						<pre class="bg-dark text-white"><code class="language-json">%s</code></pre>
+					</div>
+				</div>
+				<a href="/" class="btn btn-primary mt-3">Back to Home</a>
+			</div>
+			<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+			<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/highlight.min.js"></script>
+			<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/languages/json.min.js"></script>
+			<script>
+				hljs.highlightAll();
+			</script>
+		</body>
+		</html>`,
+		resp.StatusCode,
+		string(body),
+	)
+}
+
 func main() {
 	configPath = filepath.Join(".", "cfg.yml")
 	tokensPath = filepath.Join(".", "tokens.yml")
@@ -49,6 +128,7 @@ func main() {
 	http.HandleFunc("/save", saveConfig)
 	http.HandleFunc("/start-pkce", startPKCEFlow)
 	http.HandleFunc("/callback", handleCallback)
+	http.HandleFunc("/refresh-token", handleRefreshToken)
 
 	port := "8080"
 	fmt.Printf("Server starting on http://localhost:%s\n", port)
@@ -59,6 +139,7 @@ type TokenResponse struct {
 	Timestamp    time.Time `yaml:"timestamp"`
 	StatusCode   int       `yaml:"status_code"`
 	ResponseBody string    `yaml:"response_body"`
+	RefreshToken string    `yaml:"refresh_token,omitempty"`
 }
 
 func serveMainPage(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +152,7 @@ func serveMainPage(w http.ResponseWriter, r *http.Request) {
 	tokenResponsesHTML := buildTokenResponsesHTML(tokenResponses)
 
 	htmlTemplate := `<!DOCTYPE html>
-	<html lang="en">
+	<html lang="en" data-bs-theme="dark">
 	<head>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1">
@@ -79,10 +160,6 @@ func serveMainPage(w http.ResponseWriter, r *http.Request) {
 		<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 		<link href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/github-dark.min.css" rel="stylesheet">
 		<style>
-			body {
-				background-color: #121212;
-				color: #e0e0e0;
-			}
 			.card {
 				background-color: #1e1e1e;
 				color: #e0e0e0;
@@ -117,7 +194,7 @@ func serveMainPage(w http.ResponseWriter, r *http.Request) {
 						<label for="client_id" class="col-form-label">Client ID</label>
 					</div>
 					<div class="col-9">
-						<input type="text" class="form-control" id="client_id" name="client_id" value="%s">
+						<input type="text" class="form-control bg-dark text-white" id="client_id" name="client_id" value="%s">
 					</div>
 				</div>
 				<div class="row mb-3 align-items-center">
@@ -125,7 +202,7 @@ func serveMainPage(w http.ResponseWriter, r *http.Request) {
 						<label for="client_secret" class="col-form-label">Client Secret</label>
 					</div>
 					<div class="col-9">
-						<input type="text" class="form-control" id="client_secret" name="client_secret" value="%s">
+						<input type="text" class="form-control bg-dark text-white" id="client_secret" name="client_secret" value="%s">
 					</div>
 				</div>
 				<div class="row mb-3 align-items-center">
@@ -133,7 +210,7 @@ func serveMainPage(w http.ResponseWriter, r *http.Request) {
 						<label for="auth_url" class="col-form-label">Authorization URL</label>
 					</div>
 					<div class="col-9">
-						<input type="text" class="form-control" id="auth_url" name="auth_url" value="%s">
+						<input type="text" class="form-control bg-dark text-white" id="auth_url" name="auth_url" value="%s">
 					</div>
 				</div>
 				<div class="row mb-3 align-items-center">
@@ -141,7 +218,7 @@ func serveMainPage(w http.ResponseWriter, r *http.Request) {
 						<label for="token_url" class="col-form-label">Token URL</label>
 					</div>
 					<div class="col-9">
-						<input type="text" class="form-control" id="token_url" name="token_url" value="%s">
+						<input type="text" class="form-control bg-dark text-white" id="token_url" name="token_url" value="%s">
 					</div>
 				</div>
 				<div class="row mb-3 align-items-center">
@@ -149,7 +226,7 @@ func serveMainPage(w http.ResponseWriter, r *http.Request) {
 						<label for="redirect_uri" class="col-form-label">Redirect URI</label>
 					</div>
 					<div class="col-9">
-						<input type="text" class="form-control" id="redirect_uri" name="redirect_uri" value="%s">
+						<input type="text" class="form-control bg-dark text-white" id="redirect_uri" name="redirect_uri" value="%s">
 					</div>
 				</div>
 				<div class="row mb-3 align-items-center">
@@ -157,7 +234,7 @@ func serveMainPage(w http.ResponseWriter, r *http.Request) {
 						<label for="scopes" class="col-form-label">Scopes (space-separated)</label>
 					</div>
 					<div class="col-9">
-						<input type="text" class="form-control" id="scopes" name="scopes" value="%s">
+						<input type="text" class="form-control bg-dark text-white" id="scopes" name="scopes" value="%s">
 					</div>
 				</div>
 				<div class="text-center">
@@ -176,7 +253,7 @@ func serveMainPage(w http.ResponseWriter, r *http.Request) {
 		<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 		<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/highlight.min.js"></script>
 		<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/languages/json.min.js"></script>
-		<script>
+		<script type="text/javascript">
 			hljs.highlightAll();
 		</script>
 	</body>
@@ -296,21 +373,22 @@ func startPKCEFlow(w http.ResponseWriter, r *http.Request) {
 	// Add a hidden field to render the authorization URL for debugging
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `<!DOCTYPE html>
-		<html lang="en">
+		<html lang="en" data-bs-theme="dark">;
 		<head>
 			<meta charset="utf-8">
 			<meta name="viewport" content="width=device-width, initial-scale=1">
 			<title>Starting PKCE Flow</title>
 			<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+		<link href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/github-dark.min.css" rel="stylesheet">
 		</head>
-		<body>
+		<body class="bg-dark text-white">
 			<div class="container mt-5">
 				<h1 class="mb-4">Starting PKCE Flow</h1>
-				<div class="alert alert-info">
+				<div class="alert alert-dark">
 					If not redirected automatically, click the link below:
 				</div>
 				<a href="%s" class="btn btn-primary mb-3">Start Authorization</a>
-				<div class="card">
+				<div class="card bg-secondary text-white">
 					<div class="card-header">Debug Information</div>
 					<div class="card-body">
 						<pre class="card-text">Authorization URL: %s</pre>
@@ -318,6 +396,11 @@ func startPKCEFlow(w http.ResponseWriter, r *http.Request) {
 				</div>
 			</div>
 			<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+		<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/highlight.min.js"></script>
+		<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/languages/json.min.js"></script>
+		<script>
+			hljs.highlightAll();
+		</script>
 		</body>
 		</html>`,
 		authorizationURL, authorizationURL)
@@ -380,27 +463,33 @@ func handleCallback(w http.ResponseWriter, r *http.Request) {
 	// Display response details
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `<!DOCTYPE html>
-		<html lang="en">
+		<html lang="en" data-bs-theme="dark">;
 		<head>
 			<meta charset="utf-8">
 			<meta name="viewport" content="width=device-width, initial-scale=1">
 			<title>OAuth2 Token Response</title>
 			<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+		<link href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/github-dark.min.css" rel="stylesheet">
 		</head>
-		<body>
+		<body class="bg-dark text-white">
 			<div class="container mt-5">
 				<h1 class="mb-4">OAuth2 Token Response</h1>
-				<div class="card">
+				<div class="card bg-secondary text-white">
 					<div class="card-header">
 						Status Code: %d
 					</div>
 					<div class="card-body">
-						<pre class="card-text language-json">%s</pre>
+						<pre class="bg-dark text-white"><code class="language-json">%s</code></pre>
 					</div>
 				</div>
 				<a href="/" class="btn btn-primary mt-3">Back to Home</a>
 			</div>
 			<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+		<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/highlight.min.js"></script>
+		<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/languages/json.min.js"></script>
+		<script>
+			hljs.highlightAll();
+		</script>
 		</body>
 		</html>`,
 		resp.StatusCode,
@@ -464,26 +553,42 @@ func buildTokenResponsesHTML(tokenResponses []TokenResponse) string {
 	htmlBuilder.WriteString(`<div class="accordion" id="tokenResponses">`)
 
 	for i, response := range tokenResponses {
+		// Extract refresh token from response body
+		var refreshTokenButton string
+		var parsedResponse map[string]interface{}
+		if err := json.Unmarshal([]byte(response.ResponseBody), &parsedResponse); err == nil {
+			if rt, ok := parsedResponse["refresh_token"].(string); ok && rt != "" {
+				refreshTokenButton = fmt.Sprintf(`
+					<form action="/refresh-token" method="post" class="mt-3">
+						<input type="hidden" name="refresh_token" value="%s">
+						<button type="submit" class="btn btn-primary">Refresh Token</button>
+					</form>`, rt)
+			}
+		}
+		_ = refreshTokenButton
+
 		htmlBuilder.WriteString(fmt.Sprintf(`
 		<div class="accordion-item border border-secondary">
 			<h2 class="accordion-header border border-secondary">
 				<button class="accordion-button %s" type="button" data-bs-toggle="collapse" data-bs-target="#response-%d">
-					Response from %s (Status Code: %d)
+					<span class="badge bg-secondary me-2">%d</span> Response from %s
 				</button>
 			</h2>
 			<div id="response-%d" class="accordion-collapse collapse %s border border-secondary">
 				<div class="accordion-body bg-secondary">
-					<pre>%s</pre>
+					<pre><code class="language-json">%s</code></pre>
+					%s
 				</div>
 			</div>
 		</div>`,
 			map[bool]string{true: "collapsed", false: ""}[i != 0],
 			i,
-			response.Timestamp.Format(time.RFC3339),
 			response.StatusCode,
+			response.Timestamp.Format("Jan 02 15:04:05"),
 			i,
 			map[bool]string{true: "", false: "show"}[i != 0],
 			response.ResponseBody,
+			refreshTokenButton,
 		))
 	}
 
