@@ -129,10 +129,96 @@ func main() {
 	http.HandleFunc("/start-pkce", startPKCEFlow)
 	http.HandleFunc("/callback", handleCallback)
 	http.HandleFunc("/refresh-token", handleRefreshToken)
+	http.HandleFunc("/request-token", handleManualTokenRequest)
 
 	port := "8080"
 	fmt.Printf("Server starting on http://localhost:%s\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
+}
+
+func handleManualTokenRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Read configuration
+	config := readConfig()
+
+	// Get the code and code verifier from the form
+	code := r.FormValue("code")
+	codeVerifier := r.FormValue("code_verifier")
+
+	// Prepare token request
+	params := url.Values{
+		"client_id":     {config.ClientID},
+		"client_secret": {config.ClientSecret},
+		"code":          {code},
+		"grant_type":    {"authorization_code"},
+		"redirect_uri":  {config.RedirectURI},
+		"code_verifier": {codeVerifier},
+	}
+
+	// Send token request
+	resp, err := http.PostForm(config.TokenURL, params)
+	if err != nil {
+		http.Error(w, "Failed to request token", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, "Failed to read token response", http.StatusInternalServerError)
+		return
+	}
+
+	// Save token response
+	tokenResponse := TokenResponse{
+		Timestamp:    time.Now(),
+		StatusCode:   resp.StatusCode,
+		ResponseBody: formatJSONResponse(body),
+	}
+	saveTokenResponse(tokenResponse)
+
+	// Display response details
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprintf(w, `<!DOCTYPE html>
+		<html lang="en" data-bs-theme="dark">
+		<head>
+			<meta charset="utf-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1">
+			<title>OAuth2 Manual Token Response</title>
+			<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+			<link href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/github-dark.min.css" rel="stylesheet">
+		</head>
+		<body class="bg-dark text-white">
+			<div class="container mt-5">
+				<h1 class="mb-4">OAuth2 Manual Token Response</h1>
+				<div class="card bg-secondary text-white">
+					<div class="card-header">
+						Status Code: %d
+					</div>
+					<div class="card-body">
+						<pre class="bg-dark text-white"><code class="language-json">%s</code></pre>
+					</div>
+				</div>
+				<div class="mt-3">
+					<a href="/" class="btn btn-primary">Back to Home</a>
+				</div>
+			</div>
+			<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+			<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/highlight.min.js"></script>
+			<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/languages/json.min.js"></script>
+			<script>
+				hljs.highlightAll();
+			</script>
+		</body>
+		</html>`,
+		resp.StatusCode,
+		string(body),
+	)
 }
 
 type TokenResponse struct {
@@ -373,37 +459,105 @@ func startPKCEFlow(w http.ResponseWriter, r *http.Request) {
 	// Add a hidden field to render the authorization URL for debugging
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `<!DOCTYPE html>
-		<html lang="en" data-bs-theme="dark">;
+		<html lang="en" data-bs-theme="dark">
 		<head>
 			<meta charset="utf-8">
 			<meta name="viewport" content="width=device-width, initial-scale=1">
 			<title>Starting PKCE Flow</title>
 			<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-		<link href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/github-dark.min.css" rel="stylesheet">
+			<link href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/github-dark.min.css" rel="stylesheet">
+			<style>
+				.copy-btn {
+					position: absolute;
+					top: 10px;
+					right: 10px;
+				}
+			</style>
 		</head>
 		<body class="bg-dark text-white">
 			<div class="container mt-5">
 				<h1 class="mb-4">Starting PKCE Flow</h1>
-				<div class="alert alert-dark">
-					If not redirected automatically, click the link below:
-				</div>
-				<a href="%s" class="btn btn-primary mb-3">Start Authorization</a>
-				<div class="card bg-secondary text-white">
-					<div class="card-header">Debug Information</div>
+				
+				<div class="card bg-secondary text-white position-relative mb-3">
+					<div class="card-header">Authorization URL</div>
 					<div class="card-body">
-						<pre class="card-text">Authorization URL: %s</pre>
+						<pre class="card-text" id="authUrl">%s</pre>
+						<button class="btn btn-sm btn-outline-light copy-btn" onclick="copyToClipboard()">Copy</button>
 					</div>
 				</div>
+
+				<div class="card bg-secondary text-white mb-3">
+					<div class="card-header">Query Parameters</div>
+					<div class="card-body">
+						<table class="table table-dark table-bordered">
+							<thead>
+								<tr>
+									<th>Parameter</th>
+									<th>Value</th>
+									<th>Description</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<td><code>client_id</code></td>
+									<td><code>%s</code></td>
+									<td>The ID of the client application registered with the authorization server</td>
+								</tr>
+								<tr>
+									<td><code>response_type</code></td>
+									<td><code>code</code></td>
+									<td>Indicates the client wants to receive an authorization code</td>
+								</tr>
+								<tr>
+									<td><code>redirect_uri</code></td>
+									<td><code>%s</code></td>
+									<td>The URI where the authorization server will redirect after processing the request</td>
+								</tr>
+								<tr>
+									<td><code>scope</code></td>
+									<td><code>%s</code></td>
+									<td>The specific permissions the application is requesting</td>
+								</tr>
+								<tr>
+									<td><code>code_challenge</code></td>
+									<td><code>%s</code></td>
+									<td>A derivative of the code verifier used for PKCE (Proof Key for Code Exchange)</td>
+								</tr>
+								<tr>
+									<td><code>code_challenge_method</code></td>
+									<td><code>S256</code></td>
+									<td>The method used to generate the code challenge (SHA-256 hashing)</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+				</div>
+
+				<a href="%s" class="btn btn-primary mb-3">Start Authorization</a>
 			</div>
 			<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-		<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/highlight.min.js"></script>
-		<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/languages/json.min.js"></script>
-		<script>
-			hljs.highlightAll();
-		</script>
+			<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/highlight.min.js"></script>
+			<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/languages/json.min.js"></script>
+			<script>
+				hljs.highlightAll();
+
+				function copyToClipboard() {
+					const authUrl = document.getElementById('authUrl').textContent;
+					navigator.clipboard.writeText(authUrl).then(() => {
+						alert('Authorization URL copied to clipboard!');
+					}, (err) => {
+						console.error('Could not copy text: ', err);
+					});
+				}
+			</script>
 		</body>
 		</html>`,
-		authorizationURL, authorizationURL)
+		authorizationURL,
+		authorizationURL,
+		config.ClientID,
+		config.RedirectURI,
+		config.Scopes,
+		codeChallenge)
 
 	// Uncomment the following line to manually trigger redirect if automatic redirect fails
 	// http.Redirect(w, r, authorizationURL, http.StatusTemporaryRedirect)
@@ -427,73 +581,67 @@ func handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Prepare token request
-	params := url.Values{
-		"client_id":     {config.ClientID},
-		"client_secret": {config.ClientSecret},
-		"code":          {code},
-		"grant_type":    {"authorization_code"},
-		"redirect_uri":  {config.RedirectURI},
-		"code_verifier": {codeVerifierCookie.Value},
-	}
-
-	// Send token request
-	resp, err := http.PostForm(config.TokenURL, params)
-	if err != nil {
-		http.Error(w, "Failed to request token", http.StatusInternalServerError)
-		return
-	}
-	defer resp.Body.Close()
-
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		http.Error(w, "Failed to read token response", http.StatusInternalServerError)
-		return
-	}
-
-	// Save token response
-	tokenResponse := TokenResponse{
-		Timestamp:    time.Now(),
-		StatusCode:   resp.StatusCode,
-		ResponseBody: formatJSONResponse(body),
-	}
-	saveTokenResponse(tokenResponse)
+	// Generate payload as JSON for display
+	payloadJSON, _ := json.MarshalIndent(map[string]string{
+		"client_id":     config.ClientID,
+		"client_secret": config.ClientSecret,
+		"code":          code,
+		"grant_type":    "authorization_code",
+		"redirect_uri":  config.RedirectURI,
+		"code_verifier": codeVerifierCookie.Value,
+	}, "", "  ")
 
 	// Display response details
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `<!DOCTYPE html>
-		<html lang="en" data-bs-theme="dark">;
+		<html lang="en" data-bs-theme="dark">
 		<head>
 			<meta charset="utf-8">
 			<meta name="viewport" content="width=device-width, initial-scale=1">
-			<title>OAuth2 Token Response</title>
+			<title>OAuth2 Callback</title>
 			<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-		<link href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/github-dark.min.css" rel="stylesheet">
+			<link href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/github-dark.min.css" rel="stylesheet">
 		</head>
 		<body class="bg-dark text-white">
 			<div class="container mt-5">
-				<h1 class="mb-4">OAuth2 Token Response</h1>
-				<div class="card bg-secondary text-white">
-					<div class="card-header">
-						Status Code: %d
-					</div>
+				<h1 class="mb-4">OAuth2 Callback</h1>
+				<p class="lead">The user clicked authorize and the application has redirected back to this page with a code to use.</p>
+				<div class="card bg-secondary text-white mb-3">
+					<div class="card-header">Authorization Code</div>
 					<div class="card-body">
+						<p>This is the code given by the application that we will use in the next request</p>
+						<pre class="bg-dark text-white"><code class="language-text">%s</code></pre>
+					</div>
+				</div>
+
+				<div class="card bg-secondary text-white mb-3">
+					<div class="card-header">Token Request Payload</div>
+					<div class="card-body">
+						<p>This is full payload that will be sent in the request body for the next step</p>
 						<pre class="bg-dark text-white"><code class="language-json">%s</code></pre>
 					</div>
 				</div>
-				<a href="/" class="btn btn-primary mt-3">Back to Home</a>
+
+				<form action="/request-token" method="post" class="mb-3">
+					<input type="hidden" name="code" value="%s">
+					<input type="hidden" name="code_verifier" value="%s">
+					<button type="submit" class="btn btn-primary">Manually Request Token</button>
+				</form>
+
+				<a href="/" class="btn btn-secondary">Back to Home</a>
 			</div>
 			<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-		<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/highlight.min.js"></script>
-		<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/languages/json.min.js"></script>
-		<script>
-			hljs.highlightAll();
-		</script>
+			<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/highlight.min.js"></script>
+			<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/lib/languages/json.min.js"></script>
+			<script>
+				hljs.highlightAll();
+			</script>
 		</body>
 		</html>`,
-		resp.StatusCode,
-		string(body),
+		code,
+		string(payloadJSON),
+		code,
+		codeVerifierCookie.Value,
 	)
 }
 
