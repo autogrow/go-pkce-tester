@@ -1,0 +1,6 @@
+client_id: G33_bQxYkeFAfSr0IFznUmv0Yk51VtK0Q64rkbwqqn0
+client_secret: _ZNJnqtN_3rEtCFcjFR6wp6PF4torvF69MSNNGXq7AI
+auth_url: http://localhost:3833/oauth/authorize
+token_url: http://localhost:3833/oauth/token
+redirect_uri: http://localhost:8080/callback
+scopes: openid

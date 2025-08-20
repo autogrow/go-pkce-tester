@@ -1,0 +1,15 @@
+- timestamp: 2025-08-20T11:54:38.945495184+12:00
+  status_code: 200
+  response_body: |-
+    {
+      "access_token": "YtrPIUwgRQulpDTri1gtGgF8G_H2GwtEDAbwc7qHMPU",
+      "token_type": "Bearer",
+      "expires_in": 7200,
+      "refresh_token": "NKrvNqgo-Nx9Rz7AcHCfMxcS38F5pXza8_vQVMR0SOw",
+      "scope": "openid",
+      "created_at": 1755647678,
+      "id_token": "eyJraWQiOiJKR05WaE9ITkdUa2VXbzRYNUw1QjJnWmxyNTNqb2VfTWFKOFYzbk1xREJVIiwiYWxnIjoiUlMyNTYifQ.eyJpc3MiOiJkbXMiLCJzdWIiOiJyb2JlcnRAYXV0b2dyb3cuY29tIiwiYXVkIjoiRzMzX2JReFlrZUZBZlNyMElGem5VbXYwWWs1MVZ0SzBRNjRya2J3cXFuMCIsImV4cCI6MTc1NTY0Nzc5OCwiaWF0IjoxNzU1NjQ3Njc4LCJhdXRoX3RpbWUiOjE3NTU2NDY0NTJ9.nCsVApN0NSaJKSYUgjVqcdHVcm-2JhJpsWSPxuiJl8I3Ue_OKmQ5eeW93fRsrzwtPCGRV6hgOxkG9rRMK6QxfzNSWp9tqBwoG1pjBAb6vk8rxjNRzhoxE1uy3cGC0PcINAdqCGKN0Ib3aw6j4HMYzldEhqfgoQiI2jczx5QjzSkq-cS0U_n8ga5-UQezzq4rCBkBHYSHyUKMTecXc9EzTPNPehrAis-YuGSz4f8bhF_Rtqx13TaVPydJkrhX76FpNUrcOPVT4BfjBWwEjKQ711mB71ZyZT0ib-hfFMNKPli3cshG0mpCOvFmHz7EtoiyMIQ3r6j_pP6Hq-jeBKN6HQ"
+    }
+- timestamp: 2025-08-20T11:51:18.896801089+12:00
+  status_code: 200
+  response_body: '{"access_token":"n3UtazE0yIkTLk-VAb0P_2lYrKGTQ8_BKxSUWuTM1T0","token_type":"Bearer","expires_in":7200,"refresh_token":"Wn3VFNZ_a2MRHXyysKD-Brd4Dll4CPbzkHi7hwVqRoc","scope":"openid","created_at":1755647478,"id_token":"eyJraWQiOiJKR05WaE9ITkdUa2VXbzRYNUw1QjJnWmxyNTNqb2VfTWFKOFYzbk1xREJVIiwiYWxnIjoiUlMyNTYifQ.eyJpc3MiOiJkbXMiLCJzdWIiOiJyb2JlcnRAYXV0b2dyb3cuY29tIiwiYXVkIjoiRzMzX2JReFlrZUZBZlNyMElGem5VbXYwWWs1MVZ0SzBRNjRya2J3cXFuMCIsImV4cCI6MTc1NTY0NzU5OCwiaWF0IjoxNzU1NjQ3NDc4LCJhdXRoX3RpbWUiOjE3NTU2NDY0NTJ9.QpJorMtEJT1inEsjrKpE7Vn66HPAvhGosTczSS3--EK9Mxkfv5nRaJIq2ag9qjYT4iBZf65PQDbpROdeHNGvtBDtZ_9XEEni4JmEt1hnIsjWRwIOjHbisuvaFKBDoBGWF7w8qHPUBYPeHbvPXCOGzVsD_Cj57yndGPdn1vl7CqONRP8dnNCNxDIRRbLNA1v1eoVpWYJm-DWsvSViK-wfsfBlRoD563zjyEQzqWnl-LKj7R3Sc5QLN6Wl21G2_pzSxtkYDxuLz1isVxFbSADTZ9nNLgplV_CkdBNzXjQLDpA5n1gxBGCCk5pvmyifsmxQtipcWR0PIhxsCD6Llg15XQ"}'
