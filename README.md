@@ -4,6 +4,10 @@ This is a web interface that runs locally and helps to test and understand PKCE.
 client and runs the PKCE flow against a remote authorization server.  At each step the payloads and
 responses can be inspected and the fields are explained in a handy table.
 
+<img width="1073" height="610" alt="image" src="https://github.com/user-attachments/assets/1f33eee4-0582-4545-b964-07c0ced9a556" />
+
+<img width="1135" height="453" alt="image" src="https://github.com/user-attachments/assets/89a98b91-aff1-43c4-aba6-2df6727e132e" />
+
 ## Building
 
 Run `go build ./cmd/oauthsrv`. ez.
