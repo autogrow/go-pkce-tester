@@ -1,4 +1,4 @@
-module github.com/autogrow/goauth2-dev
+module github.com/autogrow/go-pkce-tester
 
 go 1.24.3
 
